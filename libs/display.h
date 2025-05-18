@@ -3,7 +3,9 @@
 
 // Declaração da função de display
 void initI2C();
-void display(const char *texto, int x, int y);
+void draw_text(const char *texto, int x, int y);
+void draw_rect(void);
+void flush_display(void);
 void limpar();
 
 #endif

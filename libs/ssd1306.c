@@ -186,6 +186,18 @@ void ssd1306_draw_char(ssd1306_t *ssd, char c, uint8_t x, uint8_t y)
   {
     index = (c - 'a' + 37) * 8; // Para letras minúsculas
   }
+    else if (c == '(') // Para o caractere '('
+  {
+    index = 63 * 8;  // Índice para o caractere '(' representando sinal de alerta
+  }
+  else if (c == ')') // Para o caractere ')'
+  {
+    index = 64 * 8;  // Índice para o caractere ')' representando sinal de alerta
+  }
+    else if (c == '%') // Para o caractere '%'
+  {
+    index = 65 * 8;  // Índice para o caractere '%' 
+  }
   for (uint8_t i = 0; i < 8; ++i)
   {
     uint8_t line = font[index + i];

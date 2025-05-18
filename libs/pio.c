@@ -17,13 +17,7 @@
 
 /* Buffer para armazenar quais LEDs estão ligados matriz 5x5
 (obs: devido a organização do diagrama, teremos que configurar as matrizes "espelhadas")*/
-bool led_buffer[4][NUM_PIXELS] = {
-    // Seta
-    {0, 0, 1, 0, 0, 
-    0, 0, 1, 0, 0, 
-    1, 0, 1, 0, 1, 
-    0, 1, 1, 1, 0, 
-    0, 0, 1, 0, 0,},
+bool led_buffer[2][NUM_PIXELS] = {
     // O
     {0, 1, 1, 1, 0, 
     0, 1, 0, 1, 0, 
@@ -36,13 +30,6 @@ bool led_buffer[4][NUM_PIXELS] = {
     0, 0, 1, 0, 0, 
     0, 1, 0, 1, 0, 
     0, 1, 0, 1, 0,},
-    // Off
-    {0, 0, 0, 0, 0, 
-    0, 0, 0, 0, 0, 
-    0, 0, 0, 0, 0, 
-    0, 0, 0, 0, 0, 
-    0, 0, 0, 0, 0,}
-
 };
 
 static inline void put_pixel(uint32_t pixel_grb)
