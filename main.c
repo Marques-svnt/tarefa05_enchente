@@ -13,6 +13,10 @@
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
 
+#include "buzzer.h"
+#include "pio.h"
+#include "display.h"
+
 // ----- Configurações de hardware -----
 #define JOYSTICK_ADC_WATER 0 // ADC0 para nível da água
 #define JOYSTICK_ADC_RAIN 1  // ADC1 para volume de chuva
@@ -23,11 +27,14 @@
 
 // Percentual desejado
 #define PERCENT_WATER 70
-#define PERCENT_RAIN  80
+#define PERCENT_RAIN 80
 
 // Conversão para valor ADC
-#define THRESHOLD_WATER  ((PERCENT_WATER * 4095) / 100)  // ≈ 2866
-#define THRESHOLD_RAIN   ((PERCENT_RAIN  * 4095) / 100)  // ≈ 3276
+#define THRESHOLD_WATER ((PERCENT_WATER * 4095) / 100) // ≈ 2866
+#define THRESHOLD_RAIN ((PERCENT_RAIN * 4095) / 100)   // ≈ 3276
+
+// Variável global para guardar o slice do PWM
+static uint pwm_slice;
 
 // ----- Tipos de dados para filas -----
 typedef struct
@@ -48,23 +55,32 @@ typedef struct
     SensorData_t data;
 } Command_t;
 
+typedef struct
+{
+    bool alert; // true = tocar, false = parar
+    uint freq;  // frequência em Hz (quando alert=true)
+} BuzzerCmd_t;
+
 // ----- Handles de filas -----
 static QueueHandle_t xSensorQueue;
 static QueueHandle_t xCommandQueue;
+static QueueHandle_t xBuzzerQueue;
 
 // ----- Prototipação das tarefas -----
 void vTaskJoystickRead(void *pvParameters);
 void vTaskLogic(void *pvParameters);
 void vTaskRGBLED(void *pvParameters);
 void vTaskBuzzer(void *pvParameters);
-/*void vTaskMatrix(void *pvParameters);
-void vTaskDisplay(void *pvParameters);*/
+// void vTaskMatrix(void *pvParameters);
+// void vTaskDisplay(void *pvParameters);
 
 int main()
 {
     // Inicialização padrão
     stdio_init_all();
     adc_init();
+    pwm_slice = buzzer_init();
+
     adc_gpio_init(26 + JOYSTICK_ADC_WATER); // PIO ADC0
     adc_gpio_init(26 + JOYSTICK_ADC_RAIN);
 
@@ -79,14 +95,15 @@ int main()
     // Cria filas
     xSensorQueue = xQueueCreate(4, sizeof(SensorData_t));
     xCommandQueue = xQueueCreate(4, sizeof(Command_t));
+    xBuzzerQueue = xQueueCreate(4, sizeof(BuzzerCmd_t));
 
     // Criar tarefas
     xTaskCreate(vTaskJoystickRead, "Joystick Read", 256, NULL, 2, NULL);
     xTaskCreate(vTaskLogic, "Logic", 512, NULL, 3, NULL);
     xTaskCreate(vTaskRGBLED, "Leds RGB", 256, NULL, 1, NULL);
     xTaskCreate(vTaskBuzzer, "Buzzer", 256, NULL, 1, NULL);
- /*   xTaskCreate(vTaskMatrix, "Matriz", 512, NULL, 1, NULL);
-    xTaskCreate(vTaskDisplay, "Display", 512, NULL, 2, NULL);*/
+    //   xTaskCreate(vTaskMatrix, "Matriz", 512, NULL, 1, NULL);
+    // xTaskCreate(vTaskDisplay, "Display", 512, NULL, 2, NULL);
 
     // Inicia scheduler
     vTaskStartScheduler();
@@ -107,10 +124,10 @@ void vTaskJoystickRead(void *pvParameters)
         adc_select_input(JOYSTICK_ADC_WATER);
         sensor.water_level = adc_read();
 
-        printf("%d",sensor.water_level);
+        printf("%d", sensor.water_level);
         adc_select_input(JOYSTICK_ADC_RAIN);
         sensor.rain_vol = adc_read();
-         printf("%d",sensor.rain_vol);
+        printf("%d", sensor.rain_vol);
 
         // Envia dados para a lógica
         xQueueOverwrite(xSensorQueue, &sensor);
@@ -122,6 +139,7 @@ void vTaskLogic(void *pvParameters)
 {
     SensorData_t sensor;
     Command_t cmd;
+    BuzzerCmd_t bcmd;
 
     while (true)
     {
@@ -139,6 +157,19 @@ void vTaskLogic(void *pvParameters)
             cmd.data = sensor;
             // Envia comando aos periféricos
             xQueueOverwrite(xCommandQueue, &cmd);
+
+            if (cmd.mode == MODE_ALERT)
+            {
+                bcmd.alert = true;
+                bcmd.freq = 1000; // ex: 1 kHz
+            }
+            else
+            {
+                bcmd.alert = false;
+                bcmd.freq = 0;
+            }
+            // Supondo que sua fila se chame xBuzzerQueue:
+            xQueueOverwrite(xBuzzerQueue, &bcmd);
         }
     }
 }
@@ -170,18 +201,21 @@ void vTaskRGBLED(void *pvParameters)
 
 void vTaskBuzzer(void *pvParameters)
 {
-    Command_t cmd;
-    while (true)
+    BuzzerCmd_t cmd;
+    for (;;)
     {
-        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY) == pdTRUE)
+        // Espera pelo próximo comando de buzzer
+        if (xQueueReceive(xBuzzerQueue, &cmd, portMAX_DELAY) == pdTRUE)
         {
-            if (cmd.mode == MODE_ALERT)
+            if (cmd.alert)
             {
-                // Beep sonoro periódico
+                // toca no tom especificado
+                buzz(cmd.freq);
             }
             else
             {
-                // Normal: buzzer desativado
+                // desliga o buzzer
+                buzzer_stop();
             }
         }
     }

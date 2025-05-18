@@ -30,12 +30,15 @@ include_directories(${CMAKE_SOURCE_DIR}/libs)
 
 add_executable(main  
         main.c
-
+        libs/ssd1306.c # Biblioteca para o display OLED
+        libs/display.c # Biblioteca para controle do display
+        libs/pio.c     # Biblioteca pra controle da matriz 5x5
+        libs/buzzer.c  # Biblioteca para buzzer
         )
 
 target_include_directories(main PRIVATE ${CMAKE_SOURCE_DIR})
 
-
+pico_generate_pio_header(main ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
 
 target_link_libraries(main 
         pico_stdlib 
