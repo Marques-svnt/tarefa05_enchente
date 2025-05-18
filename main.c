@@ -12,6 +12,7 @@
 #include "queue.h"
 #include "pico/stdlib.h"
 #include "hardware/adc.h"
+#include "hardware/pwm.h"
 
 #include "buzzer.h"
 #include "pio.h"
@@ -33,6 +34,9 @@
 #define THRESHOLD_WATER ((PERCENT_WATER * 4095) / 100) // ≈ 2866
 #define THRESHOLD_RAIN ((PERCENT_RAIN * 4095) / 100)   // ≈ 3276
 
+// PWM slices para LEDs
+static uint slice_red, slice_green, slice_blue;
+
 // Variável global para guardar o slice do PWM
 static uint pwm_slice;
 
@@ -46,6 +50,7 @@ typedef struct
 typedef enum
 {
     MODE_NORMAL = 0,
+    MODE_WARNING,
     MODE_ALERT
 } SystemMode_t;
 
@@ -84,13 +89,21 @@ int main()
     adc_gpio_init(26 + JOYSTICK_ADC_WATER); // PIO ADC0
     adc_gpio_init(26 + JOYSTICK_ADC_RAIN);
 
-    // Configura pinos de saída
-    gpio_init(LED_RED_PIN);
-    gpio_set_dir(LED_RED_PIN, GPIO_OUT);
-    gpio_init(LED_GREEN_PIN);
-    gpio_set_dir(LED_GREEN_PIN, GPIO_OUT);
-    gpio_init(LED_BLUE_PIN);
-    gpio_set_dir(LED_BLUE_PIN, GPIO_OUT);
+    // Configura PWM para LEDs
+    gpio_set_function(LED_RED_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(LED_GREEN_PIN, GPIO_FUNC_PWM);
+    gpio_set_function(LED_BLUE_PIN, GPIO_FUNC_PWM);
+
+    slice_red = pwm_gpio_to_slice_num(LED_RED_PIN);
+    slice_green = pwm_gpio_to_slice_num(LED_GREEN_PIN);
+    slice_blue = pwm_gpio_to_slice_num(LED_BLUE_PIN);
+
+    pwm_config config = pwm_get_default_config();
+    pwm_config_set_clkdiv(&config, 1.0f);
+
+    pwm_init(slice_red, &config, true);
+    pwm_init(slice_green, &config, true);
+    pwm_init(slice_blue, &config, true);
 
     // Cria filas
     xSensorQueue = xQueueCreate(4, sizeof(SensorData_t));
@@ -150,6 +163,10 @@ void vTaskLogic(void *pvParameters)
             {
                 cmd.mode = MODE_ALERT;
             }
+            else if ((sensor.water_level >= (THRESHOLD_WATER-500) || sensor.rain_vol >= (THRESHOLD_RAIN-500)))
+            {
+                cmd.mode = MODE_WARNING;
+            }
             else
             {
                 cmd.mode = MODE_NORMAL;
@@ -179,22 +196,30 @@ void vTaskRGBLED(void *pvParameters)
     Command_t cmd;
     while (true)
     {
-        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY))
         {
-            if (cmd.mode == MODE_ALERT)
+            uint16_t level = cmd.data.water_level; // ou média dos dois sensores
+            // verde varia com nivel em modo normal
+            if (cmd.mode == MODE_NORMAL)
             {
-                // Alerta: vermelho
-                gpio_put(LED_RED_PIN, 1);
-                gpio_put(LED_GREEN_PIN, 0);
-                gpio_put(LED_BLUE_PIN, 0);
+                uint16_t duty = level * 65535 / 4095;
+                pwm_set_chan_level(slice_green, pwm_gpio_to_channel(LED_GREEN_PIN), duty);
+                pwm_set_chan_level(slice_red, pwm_gpio_to_channel(LED_RED_PIN), 0);
             }
+            // warning: amarelo (vermelho+verde)
+            else if (cmd.mode == MODE_WARNING)
+            {
+                pwm_set_chan_level(slice_red, pwm_gpio_to_channel(LED_RED_PIN), 32767);
+                pwm_set_chan_level(slice_green, pwm_gpio_to_channel(LED_GREEN_PIN), 32767);
+            }
+            // alerta: vermelho
             else
             {
-                // Normal: verde
-                gpio_put(LED_RED_PIN, 0);
-                gpio_put(LED_GREEN_PIN, 1);
-                gpio_put(LED_BLUE_PIN, 0);
+                pwm_set_chan_level(slice_red, pwm_gpio_to_channel(LED_RED_PIN), 65535);
+                pwm_set_chan_level(slice_green, pwm_gpio_to_channel(LED_GREEN_PIN), 0);
             }
+            // azul fica desligado
+            pwm_set_chan_level(slice_blue, pwm_gpio_to_channel(LED_BLUE_PIN), 0);
         }
     }
 }
@@ -202,7 +227,7 @@ void vTaskRGBLED(void *pvParameters)
 void vTaskBuzzer(void *pvParameters)
 {
     BuzzerCmd_t cmd;
-    for (;;)
+    while (true)
     {
         // Espera pelo próximo comando de buzzer
         if (xQueueReceive(xBuzzerQueue, &cmd, portMAX_DELAY) == pdTRUE)
