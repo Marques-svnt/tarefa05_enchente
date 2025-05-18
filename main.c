@@ -169,7 +169,7 @@ void vTaskLogic(void *pvParameters)
                 bcmd.alert = true;
                 bcmd.freq = 1000;
             }
-            else if ((sensor.water_level >= (THRESHOLD_WATER - 500) || sensor.rain_vol >= (THRESHOLD_RAIN - 500)))
+            else if ((sensor.water_level >= (THRESHOLD_WATER - 200) || sensor.rain_vol >= (THRESHOLD_RAIN - 200)))
             {
                 cmd.mode = MODE_WARNING;
                 bcmd.alert = false;
