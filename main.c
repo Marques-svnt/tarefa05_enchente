@@ -58,20 +58,14 @@ typedef struct
 {
     SystemMode_t mode;
     SensorData_t data;
-} Command_t;
-
-typedef struct
-{
     bool alert; // true = tocar, false = parar
     uint freq;  // frequência em Hz (quando alert=true)
-} BuzzerCmd_t;
+} Command_t;
 
 // ----- Handles de filas -----
 static QueueHandle_t xSensorQueue;
-static QueueHandle_t xCommandQueueRGBLED;
-static QueueHandle_t xCommandQueueDisplay;
-static QueueHandle_t xCommandQueueMatriz;
-static QueueHandle_t xBuzzerQueue;
+static QueueHandle_t xCommandQueue;
+static volatile Command_t lastCommand;
 
 // ----- Prototipação das tarefas -----
 void vTaskJoystickRead(void *pvParameters);
@@ -109,18 +103,15 @@ int main()
 
     // Cria filas
     xSensorQueue = xQueueCreate(4, sizeof(SensorData_t));
-    xCommandQueueRGBLED = xQueueCreate(4, sizeof(SensorData_t));
-    xCommandQueueDisplay = xQueueCreate(4, sizeof(Command_t));
-    xCommandQueueMatriz = xQueueCreate(4, sizeof(Command_t));
-    xBuzzerQueue = xQueueCreate(4, sizeof(BuzzerCmd_t));
+    xCommandQueue = xQueueCreate(1, sizeof(Command_t));
 
     // Criar tarefas
     xTaskCreate(vTaskJoystickRead, "Joystick Read", 256, NULL, 2, NULL);
     xTaskCreate(vTaskLogic, "Logic", 512, NULL, 3, NULL);
-    xTaskCreate(vTaskRGBLED, "Leds RGB", 256, NULL, 2, NULL);
+    xTaskCreate(vTaskRGBLED, "Leds RGB", 256, NULL, 1, NULL);
     xTaskCreate(vTaskBuzzer, "Buzzer", 256, NULL, 1, NULL);
     xTaskCreate(vTaskMatrix, "Matriz", 512, NULL, 1, NULL);
-    xTaskCreate(vTaskDisplay, "Display", 512, NULL, 2, NULL);
+    xTaskCreate(vTaskDisplay, "Display", 512, NULL, 1, NULL);
 
     // Inicia scheduler
     vTaskStartScheduler();
@@ -156,7 +147,6 @@ void vTaskLogic(void *pvParameters)
 {
     SensorData_t sensor;
     Command_t cmd;
-    BuzzerCmd_t bcmd;
 
     while (true)
     {
@@ -166,27 +156,25 @@ void vTaskLogic(void *pvParameters)
             if (sensor.water_level >= THRESHOLD_WATER || sensor.rain_vol >= THRESHOLD_RAIN)
             {
                 cmd.mode = MODE_ALERT;
-                bcmd.alert = true;
-                bcmd.freq = 1000;
+                cmd.alert = true;
+                cmd.freq = 1000;
             }
             else if ((sensor.water_level >= (THRESHOLD_WATER - 200) || sensor.rain_vol >= (THRESHOLD_RAIN - 200)))
             {
                 cmd.mode = MODE_WARNING;
-                bcmd.alert = false;
-                bcmd.freq = 0;
+                cmd.alert = false;
+                cmd.freq = 0;
             }
             else
             {
                 cmd.mode = MODE_NORMAL;
-                bcmd.alert = false;
-                bcmd.freq = 0;
+                cmd.alert = false;
+                cmd.freq = 0;
             }
             cmd.data = sensor;
+            lastCommand = cmd;
             // Envia comando aos periféricos
-            xQueueOverwrite(xCommandQueueDisplay, &cmd);
-            xQueueOverwrite(xCommandQueueMatriz, &cmd);
-            xQueueOverwrite(xCommandQueueRGBLED, &cmd);
-            xQueueOverwrite(xBuzzerQueue, &bcmd);
+            xQueueOverwrite(xCommandQueue, &cmd);
         }
     }
 }
@@ -196,7 +184,7 @@ void vTaskRGBLED(void *pvParameters)
     Command_t cmd;
     while (true)
     {
-        if (xQueueReceive(xCommandQueueRGBLED, &cmd, portMAX_DELAY))
+        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY))
         {
             uint16_t level = cmd.data.water_level; // ou média dos dois sensores
             // verde varia com nivel em modo normal
@@ -227,11 +215,11 @@ void vTaskRGBLED(void *pvParameters)
 
 void vTaskBuzzer(void *pvParameters)
 {
-    BuzzerCmd_t cmd;
+    Command_t cmd;
     while (true)
     {
         // Espera pelo próximo comando de buzzer
-        if (xQueueReceive(xBuzzerQueue, &cmd, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY) == pdTRUE)
         {
             if (cmd.alert)
             {
@@ -255,7 +243,7 @@ void vTaskMatrix(void *pvParameters)
 
     while (true)
     {
-        if (xQueueReceive(xCommandQueueMatriz, &cmd, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY) == pdTRUE)
         {
             int pattern;
             uint8_t r, g, b;
@@ -286,7 +274,7 @@ void vTaskMatrix(void *pvParameters)
             set_one_led(pattern, r, g, b);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -299,7 +287,7 @@ void vTaskDisplay(void *pvParameters)
 
     while (true)
     {
-        if (xQueueReceive(xCommandQueueDisplay, &cmd, portMAX_DELAY) == pdTRUE)
+        if (xQueueReceive(xCommandQueue, &cmd, portMAX_DELAY) == pdTRUE)
         {
             limpar();
 
@@ -321,7 +309,7 @@ void vTaskDisplay(void *pvParameters)
             flush_display();
 
             // pequena pausa para não saturar o barramento I2C
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }
