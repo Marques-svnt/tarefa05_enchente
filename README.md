@@ -96,7 +96,7 @@ Este projeto implementa uma **estação inteligente de alerta de enchente** util
 
 ## Vídeo de Demonstração
 
-🎥 *[Adicione aqui o link do vídeo no YouTube ou Google Drive]*
+🎥 *[link do vídeo no YouTube](https://www.youtube.com/watch?v=mclR3VGTRy0)*
 
 ## Licença
 
